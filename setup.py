@@ -1,10 +1,27 @@
-# File: setup.py
 import os
 import subprocess
 import re
 import time
+import threading
 
-print("--- RDP Setup Script v7.2 (Branded by ZainShiraz) ---")
+# --- RDP Setup Script v8.0 (Live Timer Edition) ---
+print("--- RDP Setup Script v8.0 (Live Timer Edition) ---")
+
+# --- Global variables for timer ---
+start_time = 0
+stop_timer = threading.Event()
+
+# --- Timer Function ---
+def live_timer(stop_event):
+    """This function runs in a separate thread to display a live timer."""
+    global start_time
+    while not stop_event.is_set():
+        elapsed_time = time.time() - start_time
+        mins, secs = divmod(int(elapsed_time), 60)
+        # \r moves the cursor to the beginning of the line to overwrite it
+        timer_display = f"⏳ Elapsed Time: {mins:02d}:{secs:02d}"
+        print(timer_display, end='\r')
+        time.sleep(1)
 
 # --- CONFIGURATION ---
 USERNAME = "user"
@@ -25,6 +42,7 @@ def run_command(command, shell=False):
     except subprocess.CalledProcessError as e:
         error_message = e.stderr.decode().strip()
         print(f"\n❌ Command Error: {error_message}")
+        stop_timer.set() # Stop the timer on error
         exit(1)
 
 def print_branding():
@@ -70,12 +88,44 @@ def finalize_setup(auth_code):
     run_command(['service', 'chrome-remote-desktop', 'start'])
     print("✅ CRD Service Started.")
 
+# --- Main Installation Logic ---
+def run_installation(auth_code):
+    print("\n⚡ Starting Fast Installation...")
+    
+    print(" M-^Updating package lists...")
+    run_command(['apt-get', 'update'])
+
+    print(" M-^Downloading CRD and Chrome...")
+    run_command(['wget', 'https://dl.google.com/linux/direct/chrome-remote-desktop_current_amd64.deb', '-O', 'crd.deb'])
+    run_command(['wget', 'https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb', '-O', 'chrome.deb'])
+
+    print(" M-^Installing desktop environment and apps...")
+    repo_packages = [ "xfce4", "xfce4-terminal", "dbus-x11", "xscreensaver", "task-xfce-desktop" ]
+    run_command(['apt-get', 'install', '-y', '--no-install-recommends'] + repo_packages)
+
+    print(" M-^Setting up CRD and Chrome...")
+    run_command(['dpkg', '-i', 'crd.deb', 'chrome.deb'], shell=False)
+    
+    print(" M-^Fixing dependencies...")
+    run_command(['apt-get', 'install', '-f', '-y'])
+
+    print(" M-^Cleaning up...")
+    os.remove('crd.deb')
+    os.remove('chrome.deb')
+    
+    print(" M-^Configuring system...")
+    run_command('bash -c \'echo "exec /etc/X11/Xsession /usr/bin/xfce4-session" > /etc/chrome-remote-desktop-session\'', shell=True)
+    setup_user()
+    finalize_setup(auth_code)
+
 # --- Main Execution Block ---
 if __name__ == "__main__":
     user_input = input("➡️ Enter your Google CRD Authorization Code (or paste the full command): ").strip()
+
     if not user_input:
         print("\n❌ Error: Input cannot be empty.")
         exit(1)
+
     auth_code = user_input
     if "start-host" in user_input:
         print("👍 Full command pasted. Extracting authorization code...")
@@ -86,33 +136,31 @@ if __name__ == "__main__":
         else:
             print("\n❌ Error: Could not find a valid code in the command.")
             exit(1)
-    print("\n⚡ Starting Fast Installation...")
-    print(" M-^Updating package lists...")
-    run_command(['apt-get', 'update'])
-    print(" M-^Downloading CRD and Chrome...")
-    run_command(['wget', 'https://dl.google.com/linux/direct/chrome-remote-desktop_current_amd64.deb', '-O', 'crd.deb'])
-    run_command(['wget', 'https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb', '-O', 'chrome.deb'])
-    print(" M-^Installing desktop environment and apps...")
-    repo_packages = [ "xfce4", "xfce4-terminal", "dbus-x11", "xscreensaver", "task-xfce-desktop" ]
-    run_command(['apt-get', 'install', '-y', '--no-install-recommends'] + repo_packages)
-    print(" M-^Setting up CRD and Chrome...")
-    run_command(['dpkg', '-i', 'crd.deb', 'chrome.deb'], shell=False)
-    print(" M-^Fixing dependencies...")
-    run_command(['apt-get', 'install', '-f', '-y'])
-    print(" M-^Cleaning up...")
-    os.remove('crd.deb')
-    os.remove('chrome.deb')
-    print(" M-^Configuring system...")
-    run_command('bash -c \'echo "exec /etc/X11/Xsession /usr/bin/xfce4-session" > /etc/chrome-remote-desktop-session\'', shell=True)
-    setup_user()
-    finalize_setup(auth_code)
-    print("\n🎉 SETUP COMPLETE! 🎉")
+
+    # --- Start Timer and Installation ---
+    start_time = time.time()
+    timer_thread = threading.Thread(target=live_timer, args=(stop_timer,))
+    timer_thread.start()
+
+    run_installation(auth_code) # Run the main logic
+
+    # --- Stop Timer and Show Final Results ---
+    stop_timer.set()
+    timer_thread.join() # Wait for timer thread to finish
+    
+    total_time = time.time() - start_time
+    mins, secs = divmod(int(total_time), 60)
+
+    print(" " * 30, end='\r') # Clear the timer line
+    print(f"\n🎉 SETUP COMPLETE! (Total Time: {mins:02d}:{secs:02d}) 🎉")
     print("==================================================")
     print("You can now connect using Chrome Remote Desktop.")
     print(f"✔️ Username: {USERNAME}")
     print(f"✔️ Password: {PASSWORD}")
     print(f"✔️ PIN: {PIN}")
     print("==================================================")
+    
     print_branding()
+    
     while True:
         pass
