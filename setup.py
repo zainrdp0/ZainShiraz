@@ -2,26 +2,9 @@ import os
 import subprocess
 import re
 import time
-import threading
 
-# --- RDP Setup Script v8.0 (Live Timer Edition) ---
-print("--- RDP Setup Script v8.0 (Live Timer Edition) ---")
-
-# --- Global variables for timer ---
-start_time = 0
-stop_timer = threading.Event()
-
-# --- Timer Function ---
-def live_timer(stop_event):
-    """This function runs in a separate thread to display a live timer."""
-    global start_time
-    while not stop_event.is_set():
-        elapsed_time = time.time() - start_time
-        mins, secs = divmod(int(elapsed_time), 60)
-        # \r moves the cursor to the beginning of the line to overwrite it
-        timer_display = f"⏳ Elapsed Time: {mins:02d}:{secs:02d}"
-        print(timer_display, end='\r')
-        time.sleep(1)
+# --- RDP Setup Script v9.0 (Live Output Edition) ---
+print("--- RDP Setup Script v9.0 (Live Output Edition) ---")
 
 # --- CONFIGURATION ---
 USERNAME = "user"
@@ -29,26 +12,28 @@ PASSWORD = "root"
 PIN = "123456" 
 
 # --- Helper Functions ---
-def run_command(command, shell=False):
-    """A helper function to run shell commands efficiently and reliably."""
+def run_command_with_output(command, shell=False):
+    """Runs a command and shows its live output in the terminal."""
     try:
-        subprocess.run(
-            command,
-            check=True,
-            shell=shell,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE
-        )
+        # By not setting stdout or stderr, they will print directly to the terminal
+        subprocess.run(command, check=True, shell=shell)
+    except subprocess.CalledProcessError:
+        print(f"\n❌ Command Error occurred while running: {' '.join(command) if isinstance(command, list) else command}")
+        exit(1)
+        
+def run_silent_command(command, shell=False):
+    """Runs a command silently in the background."""
+    try:
+        subprocess.run(command, check=True, shell=shell, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
     except subprocess.CalledProcessError as e:
         error_message = e.stderr.decode().strip()
         print(f"\n❌ Command Error: {error_message}")
-        stop_timer.set() # Stop the timer on error
         exit(1)
 
 def print_branding():
     """Prints the custom ZainShiraz branding in solid red."""
     RED = "\033[91m"
-    RESET = "\033[0m"
+    RESET = "\03.3[0m"
     art = [
         "███████╗ █████╗ ██╗███╗   ██╗   ███████╗██╗  ██╗██╗██████╗  █████╗ ███████╗",
         "╚══███╔╝██╔══██╗██║████╗  ██║   ██╔════╝██║  ██║██║██╔══██╗██╔══██╗██╔════╝",
@@ -62,64 +47,10 @@ def print_branding():
         print(f"{RED}{line}{RESET}")
     print("\n")
 
-def setup_user():
-    print("🚀 Configuring user account...")
-    if subprocess.run(['id', USERNAME], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode != 0:
-        run_command(['useradd', '-m', '-s', '/bin/bash', USERNAME])
-        print(f" M-^User '{USERNAME}' created.")
-    else:
-        print(f"👍 User '{USERNAME}' already exists.")
-    run_command(f"echo '{USERNAME}:{PASSWORD}' | chpasswd", shell=True)
-    run_command(['adduser', USERNAME, 'sudo'])
-    print(f"✅ User '{USERNAME}' is configured.")
-
-def finalize_setup(auth_code):
-    print("🚀 Finalizing CRD setup...")
-    run_command(['adduser', USERNAME, 'chrome-remote-desktop'])
-    start_command = (
-        f"/opt/google/chrome-remote-desktop/start-host "
-        f"--code=\"{auth_code}\" "
-        f"--redirect-url=https://remotedesktop.google.com/_/oauthredirect "
-        f"--name=$(hostname) "
-        f"--pin={PIN}"
-    )
-    print("🔐 Launching CRD host service...")
-    run_command(['su', '-', USERNAME, '-c', start_command])
-    run_command(['service', 'chrome-remote-desktop', 'start'])
-    print("✅ CRD Service Started.")
-
-# --- Main Installation Logic ---
-def run_installation(auth_code):
-    print("\n⚡ Starting Fast Installation...")
-    
-    print(" M-^Updating package lists...")
-    run_command(['apt-get', 'update'])
-
-    print(" M-^Downloading CRD and Chrome...")
-    run_command(['wget', 'https://dl.google.com/linux/direct/chrome-remote-desktop_current_amd64.deb', '-O', 'crd.deb'])
-    run_command(['wget', 'https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb', '-O', 'chrome.deb'])
-
-    print(" M-^Installing desktop environment and apps...")
-    repo_packages = [ "xfce4", "xfce4-terminal", "dbus-x11", "xscreensaver", "task-xfce-desktop" ]
-    run_command(['apt-get', 'install', '-y', '--no-install-recommends'] + repo_packages)
-
-    print(" M-^Setting up CRD and Chrome...")
-    run_command(['dpkg', '-i', 'crd.deb', 'chrome.deb'], shell=False)
-    
-    print(" M-^Fixing dependencies...")
-    run_command(['apt-get', 'install', '-f', '-y'])
-
-    print(" M-^Cleaning up...")
-    os.remove('crd.deb')
-    os.remove('chrome.deb')
-    
-    print(" M-^Configuring system...")
-    run_command('bash -c \'echo "exec /etc/X11/Xsession /usr/bin/xfce4-session" > /etc/chrome-remote-desktop-session\'', shell=True)
-    setup_user()
-    finalize_setup(auth_code)
-
 # --- Main Execution Block ---
 if __name__ == "__main__":
+    start_time = time.time()
+    
     user_input = input("➡️ Enter your Google CRD Authorization Code (or paste the full command): ").strip()
 
     if not user_input:
@@ -137,21 +68,64 @@ if __name__ == "__main__":
             print("\n❌ Error: Could not find a valid code in the command.")
             exit(1)
 
-    # --- Start Timer and Installation ---
-    start_time = time.time()
-    timer_thread = threading.Thread(target=live_timer, args=(stop_timer,))
-    timer_thread.start()
-
-    run_installation(auth_code) # Run the main logic
-
-    # --- Stop Timer and Show Final Results ---
-    stop_timer.set()
-    timer_thread.join() # Wait for timer thread to finish
+    print("\n⚡ Starting Installation with Live Output...")
     
+    # --- Installation Steps with Live Output ---
+    print("\n--- Step 1: Updating package lists ---")
+    run_command_with_output(['apt-get', 'update'])
+
+    print("\n--- Step 2: Downloading CRD and Chrome ---")
+    run_command_with_output(['wget', '-c', 'https://dl.google.com/linux/direct/chrome-remote-desktop_current_amd64.deb', '-O', 'crd.deb'])
+    run_command_with_output(['wget', '-c', 'https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb', '-O', 'chrome.deb'])
+
+    print("\n--- Step 3: Installing Desktop Environment & Apps ---")
+    repo_packages = [ "xfce4", "xfce4-terminal", "dbus-x11", "xscreensaver", "task-xfce-desktop" ]
+    run_command_with_output(['apt-get', 'install', '-y'] + repo_packages)
+
+    print("\n--- Step 4: Setting up CRD and Chrome from downloaded files ---")
+    try:
+        subprocess.run(['dpkg', '-i', 'crd.deb', 'chrome.deb'], check=True)
+    except subprocess.CalledProcessError:
+        print("\n--- Step 5: Fixing any broken dependencies ---")
+        run_command_with_output(['apt-get', 'install', '-f', '-y'])
+    
+    # --- Silent Configuration Steps ---
+    print("\n--- Step 6: Final Configuration ---")
+    
+    # Configure User
+    if subprocess.run(['id', USERNAME], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode != 0:
+        run_silent_command(['useradd', '-m', '-s', '/bin/bash', USERNAME])
+    run_silent_command(f"echo '{USERNAME}:{PASSWORD}' | chpasswd", shell=True)
+    run_silent_command(['adduser', USERNAME, 'sudo'])
+    print("✔️ User configured.")
+
+    # Configure CRD Session
+    run_silent_command('bash -c \'echo "exec /etc/X11/Xsession /usr/bin/xfce4-session" > /etc/chrome-remote-desktop-session\'', shell=True)
+    run_silent_command(['adduser', USERNAME, 'chrome-remote-desktop'])
+    print("✔️ CRD session configured.")
+    
+    # Launch CRD Host
+    start_command = (
+        f"/opt/google/chrome-remote-desktop/start-host "
+        f"--code=\"{auth_code}\" "
+        f"--redirect-url=https://remotedesktop.google.com/_/oauthredirect "
+        f"--name=$(hostname) "
+        f"--pin={PIN}"
+    )
+    print("✔️ Launching CRD host service...")
+    run_silent_command(['su', '-', USERNAME, '-c', start_command])
+    run_silent_command(['service', 'chrome-remote-desktop', 'start'])
+    print("✔️ CRD Service Started.")
+    
+    # Cleanup
+    os.remove('crd.deb')
+    os.remove('chrome.deb')
+    print("✔️ Cleanup complete.")
+    
+    # --- Final Summary ---
     total_time = time.time() - start_time
     mins, secs = divmod(int(total_time), 60)
 
-    print(" " * 30, end='\r') # Clear the timer line
     print(f"\n🎉 SETUP COMPLETE! (Total Time: {mins:02d}:{secs:02d}) 🎉")
     print("==================================================")
     print("You can now connect using Chrome Remote Desktop.")
